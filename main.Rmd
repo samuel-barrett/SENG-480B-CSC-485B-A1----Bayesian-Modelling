@@ -1,0 +1,85 @@
+---
+title: "Bayesian Modelling"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+```{r}
+f <- read.csv("data/a1.csv", stringsAsFactors = TRUE)
+
+f$category <- as.numeric(f$category)
+f$technique <- as.numeric(f$technique)
+
+str(f)
+set.seed(100)
+```
+
+```{r}
+print(var(f$tp))
+print(mean(f$tp))
+```
+
+Add a prior predictor for technique, since we think that will better determine the tp.
+
+```{r m1, message=FALSE, warning=FALSE, results='hide'}
+m1 <- ulam(
+    alist(
+        tp ~ poisson(lambda),
+        log(lambda) <- a_tech[technique],
+        a_tech[technique] ~ normal(0, 1)
+    ), data = f, cores = 4, chains = 4, cmdstan = TRUE, log_lik = TRUE
+)
+```
+```{r}
+postcheck(m1, window = 140)
+```
+
+Prior for experience level (category).
+
+```{r m2, message=FALSE, warning=FALSE, results='hide'}
+m2 <- ulam(
+    alist(
+        tp ~ poisson(lambda),
+        log(lambda) <- a_cate[category],
+        a_cate[category] ~ normal(0, 1)
+    ), data = f, cores = 4, chains = 4, cmdstan = TRUE, log_lik = TRUE
+)
+```
+```{r}
+postcheck(m2, window = 140)
+```
+
+```{r m3, message=FALSE, warning=FALSE, results='hide'}
+m3 <- ulam(
+    alist(
+        tp ~ dgampois(lambda, phi),
+        logit(lambda) <- a_cate[category] + a_tech[technique],
+        a_cate[category] ~ normal(0, 1),
+        a_tech[technique] ~ normal(0, 1),
+        phi ~ normal(0, 1)
+    ), data = f, cores = 4, chains = 4, cmdstan = TRUE, log_lik = TRUE
+)
+```
+```{r}
+postcheck(m3, window = 140)
+```
+Compare models. We need to have a more refined model first...
+```{r}
+(loo_est <- compare(m1, m2, m3, func=LOO))
+```
+
+Which experience level is better (a_cate[1] (less) or a_cate[2] (more))? It seems to be less experienced.
+Which technique fares better (a_tech[1] (new) or a_tech[2] (old))? New technique is better.
+```{r}
+plot(precis(m2, depth = 2, pars = "a_cate", prob = 0.95))
+plot(precis(m1, depth = 2, pars = "a_tech", prob = 0.95))
+```
