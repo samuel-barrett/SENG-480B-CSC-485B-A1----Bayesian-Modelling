@@ -2,16 +2,22 @@
 title: "Bayesian Modelling"
 output: html_notebook
 ---
+Load libraries
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = TRUE)
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+library(rethinking) # the sw for model specification (it then uses cmdstan)
+library(foreign) # need to load funky data format
+library(here) # make sure working dir is the same all the time
+set.seed(100)
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+```
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
-
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+Read in data
 
 ```{r}
 f <- read.csv("data/a1.csv", stringsAsFactors = TRUE)
@@ -20,18 +26,28 @@ f$category <- as.numeric(f$category)
 f$technique <- as.numeric(f$technique)
 
 str(f)
-set.seed(100)
 ```
 
 ```{r}
-print(var(f$tp))
-print(mean(f$tp))
+print(paste("Variance of all true positives:", var(f$tp)))
+print(paste("Mean of all true positives: ", mean(f$tp)))
+
+print(paste("Variance of tps using new technique"))
+
+f_nt <- f[f$technique == 1,]
+f_ot <- f[f$technique == 2,]
+
+print(paste("Variance of new technique true positives:", var(f_nt$tp)))
+print(paste("Mean of all new tehcnique true positives: ", mean(f_nt$tp)))
+
+print(paste("Variance of old technique true positives:", var(f_ot$tp)))
+print(paste("Mean of all old tehcnique true positives: ", mean(f_ot$tp)))
 ```
 
-Add a prior predictor for technique, since we think that will better determine the tp.
+Use a predictor for technique, since we think that will better determine the tp.
 
-```{r m1, message=FALSE, warning=FALSE, results='hide'}
-m1 <- ulam(
+```{r m_poisson_ptechnique, message=FALSE, warning=FALSE, results='hide'}
+m_poisson_ptechnique <- ulam(
     alist(
         tp ~ poisson(lambda),
         log(lambda) <- a_tech[technique],
@@ -40,13 +56,13 @@ m1 <- ulam(
 )
 ```
 ```{r}
-postcheck(m1, window = 140)
+postcheck(m_poisson_ptechnique, window = 140)
 ```
 
 Prior for experience level (category).
 
-```{r m2, message=FALSE, warning=FALSE, results='hide'}
-m2 <- ulam(
+```{r m_poisson_pexperience, message=FALSE, warning=FALSE, results='hide'}
+m_poisson_pexperience <- ulam(
     alist(
         tp ~ poisson(lambda),
         log(lambda) <- a_cate[category],
@@ -54,32 +70,77 @@ m2 <- ulam(
     ), data = f, cores = 4, chains = 4, cmdstan = TRUE, log_lik = TRUE
 )
 ```
+
+
 ```{r}
-postcheck(m2, window = 140)
+postcheck(m_poisson_pexperience, window = 140)
 ```
 
-```{r m3, message=FALSE, warning=FALSE, results='hide'}
-m3 <- ulam(
+#```{r m3, message=FALSE, warning=FALSE, results='hide'}
+#m3 <- ulam(
+#    alist(
+#        tp ~ dgampois(lambda, phi),
+#        logit(lambda) <- a_cate[category] + a_tech[technique],
+#        a_cate[category] ~ normal(0, 10),
+#        a_tech[technique] ~ normal(0, 10),
+#        phi ~ normal(0, 1)
+#    ), data = f, cores = 4, chains = 4, cmdstan = TRUE, log_lik = TRUE
+#)
+#```
+
+#```{r}
+#postcheck(m3, window = 140)
+#```
+
+```{r}
+m_binom_ptechnique <- ulam(
     alist(
-        tp ~ dgampois(lambda, phi),
-        logit(lambda) <- a_cate[category] + a_tech[technique],
-        a_cate[category] ~ normal(0, 1),
-        a_tech[technique] ~ normal(0, 1),
-        phi ~ normal(0, 1)
+        tp ~ binomial(50, p),
+        p <- a_tech[technique],
+        a_tech[technique] ~ normal(0.5, 0.1)
     ), data = f, cores = 4, chains = 4, cmdstan = TRUE, log_lik = TRUE
 )
 ```
-```{r}
-postcheck(m3, window = 140)
+
+```{R}
+precis(m_binom_ptechnique)
+postcheck(m_binom_ptechnique, window = 140)
 ```
+
+```{r}
+m_binom_pexperience <- ulam(
+    alist(
+        tp ~ binomial(50, p),
+        p <- a_exp[category],
+        a_exp[category] ~ normal(0.5, 0.1)
+    ), 
+    data = f, 
+    cores = 4, 
+    chains = 4, 
+    cmdstan = TRUE, 
+    log_lik = TRUE
+)
+```
+
+```{R}
+precis(m_binom_pexperience)
+postcheck(m_binom_pexperience, window = 140)
+```
+
+
+
 Compare models. We need to have a more refined model first...
 ```{r}
-(loo_est <- compare(m1, m2, m3, func=LOO))
+(loo_est <- compare(m_poisson_ptechnique, m_poisson_pexperience, m_binom_ptechnique, m_binom_pexperience, func=LOO))
 ```
 
 Which experience level is better (a_cate[1] (less) or a_cate[2] (more))? It seems to be less experienced.
 Which technique fares better (a_tech[1] (new) or a_tech[2] (old))? New technique is better.
+
 ```{r}
-plot(precis(m2, depth = 2, pars = "a_cate", prob = 0.95))
-plot(precis(m1, depth = 2, pars = "a_tech", prob = 0.95))
+plot(precis(m_poisson_pexperience, depth = 2, pars = "a_cate", prob = 0.95))
+plot(precis(m_poisson_ptechnique, depth = 2, pars = "a_tech", prob = 0.95))
+
+plot(precis(m_binom_pexperience, depth = 2, pars = "a_exp", prob = 0.95))
+plot(precis(m_binom_ptechnique, depth = 2, pars = "a_tech", prob = 0.95))
 ```
