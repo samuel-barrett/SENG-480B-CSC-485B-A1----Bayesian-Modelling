@@ -92,25 +92,25 @@ postcheck(m_poisson_pexperience, window = 140)
 #postcheck(m3, window = 140)
 #```
 
-```{r}
+```{r m_binom_ptechnique, message=FALSE, warning=FALSE, results='hide'}
 m_binom_ptechnique <- ulam(
     alist(
-        tp ~ binomial(50, p),
+        tp ~ binomial(25, p), #Assume TP will likely not exceed 50 
         p <- a_tech[technique],
         a_tech[technique] ~ normal(0.5, 0.1)
     ), data = f, cores = 4, chains = 4, cmdstan = TRUE, log_lik = TRUE
 )
 ```
 
-```{R}
+```{r}
 precis(m_binom_ptechnique)
 postcheck(m_binom_ptechnique, window = 140)
 ```
 
-```{r}
+```{r m_binom_pexperience, message=FALSE, warning=FALSE, results='hide'}
 m_binom_pexperience <- ulam(
     alist(
-        tp ~ binomial(50, p),
+        tp ~ binomial(25, p), #Assume TP will likely not exceed 50
         p <- a_exp[category],
         a_exp[category] ~ normal(0.5, 0.1)
     ), 
